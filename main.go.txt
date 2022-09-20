@@ -1,0 +1,185 @@
+package main
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rpc"
+)
+
+var ctx = context.Background()
+
+var (
+	// 	// url = "http://127.0.0.1:8545"
+	// 	// tx  = "0xe2667c28729916070eb2a60744cb9287f5a85ce960c1ca5d428198cc4faf6b58"
+	// 	// tx  = "0x1d936d0318aa0e43a47694201b049dd3651e3d5097323570db5cea72eb93e9be" // ok
+	// 	// tx = "0xec8cc3eef7fdc12edca267ef1357e1036ee039e836f89a173ec44f21359a7513" // error notFound(uint256)
+
+	url = "https://testnet.ankr.com"
+	// 	// tx  = "0xf964af02ca456044845bfd0a732811731a0b6a444266957d76ddfa59806059e2" // transfer money
+	// 	// tx  = "0xe20b63c364a9f73a1de170346caad43edcd3a3ad0ff25f0eb51a47a4f25d0c8f" // create + deletegate
+	// 	// tx = "0x8236f354b59e1f8f3ecf242adfe26e17bf8578ea2c53d6441f25bdd325e509e9" // nft swap -> swap (erc20)
+	// 	// tx = "0x5198c8eb345127c0a67f893341563d76202d16ef8609edecb0e8a78c1e537428" // swap eth
+	// 	// tx = "0x16a6f9b6e54085398c100253e547c5690617d63e40dda9984b61427ef7fbb1ed" // create2
+	// 	// tx = "0x2388ddca38fa35829c515e5513ea54f69870d3e10bdd12818438cdd6ab6e5e11" // upgrade to
+	// 	// tx  = "0x7c8edd6f9259c56862143cce51e9ccc2a63e3a93ad48b2a632b7127b907c25ff" // try
+	// 	// tx  = "0xd55aefae34251730ec051b1e90e115650e2d0f133c004d0733e2bec1417da47d" // create & constructor
+	// 	tx  = "0xdcc64995b85e7c24bd339edb379eb0fa0fc4a96ab9b8dd72fff1e4dff3ad7b06"
+	tx = "0xf4bd118c7e2faedc95fe6d9690d3f54731a88465cb2f5c9c6b63d7b05d263a3f"
+)
+
+var (
+// url = "https://bas-archive.ankr.com/rpc"
+// 对照组
+// tx = "0x0c5c799966963b1adc304fb6ea19138b6715f2b98b02be938c20daa06f8557ff" // 失败
+// tx = "0xcb63cf6c85ec41f32f63066ab9cf2b5960475aac4a07b89fd0671cf6dd5f9d62" // 成功
+
+//
+// tx  = "0x478d04c3314c7241ed70fb1d4221e7fe560c4042bc37cf09521f16df70b2c337" // 成功, gas 少
+
+// transfer
+// tx = "0xee38c44c33367150f5aec37a3a07756515bf066c7699a047c2c97bc612388339" // 少 3w
+// tx  = "0x8f013f4171023126af65ea7e07ac4c1c02bdf656759cb05d2b794c787e4752b2"
+// tx = "0x31efe604b917017768ed28d0c050423cba2b15643602bceaae4b38b5601e833c"
+)
+
+func main() {
+
+	// createAccount()
+
+	c, err := rpc.DialContext(ctx, url)
+	assertErr(err)
+
+	// traceCall(c)
+	// getStorageRange(c)
+	// getOp(c)
+	getCallTracer(c)
+}
+
+func traceCall(c *rpc.Client) {
+	var err error
+	var res = callFrame{}
+	err = c.Call(&res, "debug_traceCall", map[string]string{
+		"to":   "0xd010de36818c87538e245b6cee48d16f91eb9398",
+		"data": "0x00000000",
+	},
+		"0xe9f63b1f039628f7292ea1cecb0b25978fcecc76acc6f00958a312c7179b0585",
+		&Config{Tracer: "callTracer"},
+	)
+	assertErr(err)
+
+	bytesData, _ := json.Marshal(res)
+	fmt.Println(string(bytesData))
+}
+
+func getStorageRange(c *rpc.Client) {
+	var err error
+	var res StorageRange
+	err = c.Call(&res, "debug_storageRangeAt",
+		"0xe9f63b1f039628f7292ea1cecb0b25978fcecc76acc6f00958a312c7179b0585",
+		0,
+		"0xd010de36818c87538e245b6cee48d16f91eb9398",
+		"0x",
+		10,
+	)
+	assertErr(err)
+
+	fmt.Println(res.Storage)
+}
+
+func getCallTracer(c *rpc.Client) {
+	var err error
+	var res = callFrame{}
+	err = c.Call(&res, "debug_traceTransaction", tx, &Config{Tracer: "callTracer"})
+	assertErr(err)
+
+	if res.Error != "" {
+		if strings.HasPrefix(res.Output, "0x08c379a0") {
+			res, err := decodeParameter("string", hexutil.MustDecode(fmt.Sprintf("0x%s", res.Output[10:])))
+			assertErr(err)
+			fmt.Println(res[0].(string))
+		} else {
+			fmt.Println(res.Output)
+		}
+	}
+
+	bytesData, _ := json.Marshal(res)
+	fmt.Println(string(bytesData))
+}
+
+func getOp(c *rpc.Client) {
+	var err error
+	var res = ExecutionResult{}
+	err = c.Call(&res, "debug_traceTransaction", tx, &Config{})
+	assertErr(err)
+	// error msg
+	// fmt.Println(res)
+	// fmt.Println(res.Failed)
+	// if res.Failed {
+	// 	if strings.HasPrefix(res.ReturnValue, "08c379a0") {
+	// 		res, err := decodeParameter("string", hexutil.MustDecode(fmt.Sprintf("0x%s", res.ReturnValue[8:])))
+	// 		assertErr(err)
+	// 		fmt.Println(res[0].(string))
+	// 	} else {
+	// 		fmt.Println(res.ReturnValue)
+	// 	}
+	// }
+
+	// gas cost
+	// fmt.Println(len(res.StructLogs))
+	// var (
+	// 	opMap = make(map[string]struct{})
+	// 	cost  uint64
+	// )
+	for _, v := range res.StructLogs {
+		// if v.Depth == 1 {
+		// 	opMap[v.Op] = struct{}{}
+		// 	// if v.Op != "DELEGATECALL" && v.Op != "CREATE2" && v.Op != "STATICCALL" {
+		// 	cost += v.GasCost
+		// 	// }
+		// 	fmt.Printf("depth: %d, gas: %d, gasCost: %d, op: %s, pc: %d\n", v.Depth, v.Gas, v.GasCost, v.Op, v.Pc)
+		// }
+		fmt.Printf("depth: %d, gas: %6d, gasCost: %6d, op: %15s, pc: %d\n", v.Depth, v.Gas, v.GasCost, v.Op, v.Pc)
+	}
+
+	fmt.Println("gasused:", res.Gas)
+	// fmt.Println("cost:", cost)
+	// for k := range opMap {
+	// 	fmt.Println(k)
+	// }
+}
+
+func decodeParameter(typ string, data []byte) ([]interface{}, error) {
+	t, err := abi.NewType(typ, "", nil)
+	assertErr(err)
+	args := abi.Arguments{{
+		Type: t,
+	},
+	}
+	return args.UnpackValues(data)
+}
+
+func assertErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func createAccount() {
+	privateKey, err := crypto.GenerateKey()
+	assertErr(err)
+	publickey, ok := privateKey.Public().(*ecdsa.PublicKey)
+	if !ok {
+		panic("Public key cast error.")
+	}
+
+	fmt.Println("privatekey:", hexutil.Bytes(crypto.FromECDSA(privateKey)).String())
+	addr := crypto.PubkeyToAddress(*publickey)
+	fmt.Println("address", addr)
+}
