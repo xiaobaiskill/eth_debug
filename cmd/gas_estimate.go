@@ -28,7 +28,7 @@ var esatmate = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:     share.To,
-			Required: true,
+			Required: false,
 			Value:    "",
 		},
 		&cli.StringFlag{
@@ -50,11 +50,15 @@ var esatmate = &cli.Command{
 		}
 		client = ethclient.NewClient(rpcClient)
 
-		to := common.HexToAddress(c.String(share.To))
+		var to *common.Address
+		if c.String(share.To) != "" {
+			toAddr := common.HexToAddress(c.String(share.To))
+			to = &toAddr
+		}
 
 		callMsg := ethereum.CallMsg{
 			From:  common.HexToAddress(c.String(share.From)),
-			To:    &to,
+			To:    to,
 			Value: hexutil.MustDecodeBig(c.String(share.Value)),
 			Data:  hexutil.MustDecode(c.String(share.Data)),
 		}
